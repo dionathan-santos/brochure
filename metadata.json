@@ -1,0 +1,6 @@
+{
+  "name": "Edmonton Office Brochure Extraction Pipeline",
+  "description": "A Python-based pipeline for extracting and validating structured availability data from Edmonton office brokerage brochures using LLMs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

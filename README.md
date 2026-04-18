@@ -1,11 +1,36 @@
-<div align="center">
+# Edmonton Office Brochure Extraction Pipeline
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+## Overview
+Build a Python pipeline that reads PDF brochures from Edmonton office brokerages, extracts structured availability data using an LLM API, validates it against a Master Inventory, and produces a 3-tab Excel output for review.
 
-  <h1>Built with AI Studio</h2>
+## Repository Structure
+- `config.py`: Environment configuration and schema constants.
+- `main.py`: Main entry point for the extraction pipeline.
+- `modules/`: Contains logic for extraction, LLM client, validation, comparison, and output building.
+- `prompts/`: LLM prompt templates.
+- `data/`: Data constants and aliases.
+- `notebooks/`: Google Colab entry point.
+- `tests/`: Unit tests for various modules.
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## Setup Instructions
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+### Local Setup
+1. Clone the repository.
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Copy `.env.example` to `.env` and fill in your API keys and paths:
+   ```bash
+   cp .env.example .env
+   ```
+4. Run the pipeline:
+   ```bash
+   python main.py
+   ```
 
-</div>
+### Google Colab
+Follow instructions in `notebooks/run_pipeline.ipynb` to run the pipeline in a Colab environment with Google Drive integration.
+
+## License
+Proprietary - Avison Young Market Intelligence
