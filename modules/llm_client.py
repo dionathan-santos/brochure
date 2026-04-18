@@ -88,12 +88,12 @@ def _parse_json(raw: str) -> dict:
 
 
 def _call_gemini(prompt: str, pdf_text: str, attempt: int) -> str:
-    """Call Gemini via the google-generativeai SDK."""
-    # Import lazily so the module still loads without the package installed
+    """Call Gemini via the google-genai SDK."""
     try:
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types as genai_types
     except ImportError as exc:
-        raise LLMError("google-generativeai not installed") from exc
+        raise LLMError("google-genai not installed — run: pip install google-genai") from exc
 
     from config import GEMINI_API_KEY
     from prompts.universal_extraction import SYSTEM_PROMPT
@@ -103,23 +103,18 @@ def _call_gemini(prompt: str, pdf_text: str, attempt: int) -> str:
 
     start = time.time()
     try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        model_obj = genai.GenerativeModel(
-            GEMINI_MODEL,
-            system_instruction=SYSTEM_PROMPT,
-        )
-        generation_config = genai.types.GenerationConfig(
-            temperature=TEMPERATURE,
-            max_output_tokens=MAX_OUTPUT_TOKENS,
-        )
+        client = genai.Client(api_key=GEMINI_API_KEY)
         full_prompt = prompt.format(pdf_text=pdf_text)
-        response = model_obj.generate_content(
-            full_prompt,
-            generation_config=generation_config,
-            request_options={"timeout": TIMEOUT},
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=full_prompt,
+            config=genai_types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                temperature=TEMPERATURE,
+                max_output_tokens=MAX_OUTPUT_TOKENS,
+            ),
         )
         duration = time.time() - start
-        # Rough token estimate: 1 token ≈ 4 chars
         est_tokens = len(full_prompt) // 4
         logger.info(
             "Gemini attempt %d: ~%d input tokens, %.1fs", attempt, est_tokens, duration
