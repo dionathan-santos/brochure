@@ -95,15 +95,17 @@ def _call_gemini(prompt: str, pdf_text: str, attempt: int) -> str:
     except ImportError as exc:
         raise LLMError("google-genai not installed — run: pip install google-genai") from exc
 
-    from config import GEMINI_API_KEY
+    import os
     from prompts.universal_extraction import SYSTEM_PROMPT
 
-    if not GEMINI_API_KEY:
+    # Read at call-time so Colab env vars set after module import are picked up
+    gemini_api_key = os.environ.get("GEMINI_API_KEY")
+    if not gemini_api_key:
         raise LLMError("GEMINI_API_KEY not set")
 
     start = time.time()
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        client = genai.Client(api_key=gemini_api_key)
         full_prompt = prompt.format(pdf_text=pdf_text)
         response = client.models.generate_content(
             model=GEMINI_MODEL,
@@ -127,17 +129,19 @@ def _call_gemini(prompt: str, pdf_text: str, attempt: int) -> str:
 
 def _call_haiku(prompt: str, pdf_text: str, attempt: int) -> str:
     """Call Anthropic Claude Haiku via the Messages API."""
-    from config import ANTHROPIC_API_KEY
+    import os
     from prompts.universal_extraction import SYSTEM_PROMPT
 
-    if not ANTHROPIC_API_KEY:
+    # Read at call-time for same reason as Gemini key above
+    anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not anthropic_api_key:
         raise LLMError("ANTHROPIC_API_KEY not set")
 
     full_prompt = prompt.format(pdf_text=pdf_text)
     start = time.time()
 
     headers = {
-        "x-api-key": ANTHROPIC_API_KEY,
+        "x-api-key": anthropic_api_key,
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
     }
