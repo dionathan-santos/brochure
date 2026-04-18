@@ -88,13 +88,7 @@ def _parse_json(raw: str) -> dict:
 
 
 def _call_gemini(prompt: str, pdf_text: str, attempt: int) -> str:
-    """Call Gemini via the google-genai SDK."""
-    try:
-        from google import genai
-        from google.genai import types as genai_types
-    except ImportError as exc:
-        raise LLMError("google-genai not installed — run: pip install google-genai") from exc
-
+    """Call Gemini via the REST API directly (bypasses SDK/proxy issues in Colab)."""
     import os
     from prompts.universal_extraction import SYSTEM_PROMPT
 
@@ -103,28 +97,47 @@ def _call_gemini(prompt: str, pdf_text: str, attempt: int) -> str:
     if not gemini_api_key:
         raise LLMError("GEMINI_API_KEY not set")
 
+    full_prompt = prompt.format(pdf_text=pdf_text)
     start = time.time()
+
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent?key={gemini_api_key}"
+    )
+    payload = {
+        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "contents": [{"parts": [{"text": full_prompt}]}],
+        "generationConfig": {
+            "temperature": TEMPERATURE,
+            "maxOutputTokens": MAX_OUTPUT_TOKENS,
+        },
+    }
+
     try:
-        client = genai.Client(api_key=gemini_api_key)
-        full_prompt = prompt.format(pdf_text=pdf_text)
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=full_prompt,
-            config=genai_types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                temperature=TEMPERATURE,
-                max_output_tokens=MAX_OUTPUT_TOKENS,
-            ),
+        resp = requests.post(
+            url,
+            json=payload,
+            headers={"content-type": "application/json"},
+            timeout=TIMEOUT,
         )
+        resp.raise_for_status()
         duration = time.time() - start
-        est_tokens = len(full_prompt) // 4
+        data = resp.json()
+        try:
+            text = data["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError) as exc:
+            raise LLMError(f"Gemini response missing text: {data}") from exc
+        usage = data.get("usageMetadata", {})
+        input_tokens = usage.get("promptTokenCount", len(full_prompt) // 4)
         logger.info(
-            "Gemini attempt %d: ~%d input tokens, %.1fs", attempt, est_tokens, duration
+            "Gemini attempt %d: %s input tokens, %.1fs", attempt, input_tokens, duration
         )
-        return response.text
-    except Exception as exc:
+        return text
+    except requests.exceptions.RequestException as exc:
         duration = time.time() - start
-        raise LLMError(f"Gemini error (attempt {attempt}, {duration:.1f}s): {exc}") from exc
+        raise LLMError(
+            f"Gemini HTTP error (attempt {attempt}, {duration:.1f}s): {exc}"
+        ) from exc
 
 
 def _call_haiku(prompt: str, pdf_text: str, attempt: int) -> str:
