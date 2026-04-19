@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from datetime import date, datetime
 
 import pandas as pd
@@ -76,7 +77,7 @@ def run_pipeline(brochure_dir: str, brokerage: str) -> str:
 
     # ── Load reference data ──────────────────────────────────────────────────
     inventory_df = _load_excel_safe(MASTER_INVENTORY_PATH, "Master Inventory")
-    db_df = _load_excel_safe(AVAILABILITIES_PATH, "Availabilities")
+    db_df = _normalize_availabilities(_load_excel_safe(AVAILABILITIES_PATH, "Availabilities"))
 
     # ── Discover PDF files ───────────────────────────────────────────────────
     pdf_files = sorted(
@@ -240,6 +241,61 @@ def _record_to_db_dict(record, source_brochure: str, run_date: date) -> dict:
         row["Days on Market"] = None
 
     return row
+
+
+_MARKET_PLACEHOLDERS = frozenset({
+    "market", "tbd", "tbc", "n/a", "na", "ask", "asking", "none", "nan", "-", "--", ""
+})
+_NUMERIC_DB_COLS = ["Min Rent", "Max Rent", "Op. Cost", "Size", "Building Size"]
+
+
+def _coerce_numeric(val):
+    """Return rounded float for parseable values; None for market-rate placeholders."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    if s.lower() in _MARKET_PLACEHOLDERS:
+        return None
+    s = re.sub(r"[$,]", "", s)
+    s = re.sub(r"\s*(sf|psf|/sf|/sqft)\s*$", "", s, flags=re.IGNORECASE).strip()
+    if not s or s.lower() in _MARKET_PLACEHOLDERS:
+        return None
+    try:
+        return round(float(s), 2)
+    except ValueError:
+        return None
+
+
+def _normalize_availabilities(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalise the Availabilities DataFrame before comparison.
+
+    - Strips whitespace from column names and string cells
+    - Converts market-rate placeholders (MARKET, TBD, N/A …) to None in numeric columns
+    - Strips currency symbols and commas from rent/cost/size columns
+    - Drops fully-duplicate rows
+    """
+    if df.empty:
+        return df
+
+    df = df.copy()
+
+    # Normalise column names
+    df.columns = [str(c).strip() for c in df.columns]
+
+    # Strip whitespace from all string columns and replace text-null sentinels
+    for col in df.select_dtypes(include="object").columns:
+        df[col] = df[col].astype(str).str.strip()
+        df[col] = df[col].replace({"nan": None, "None": None, "NaT": None})
+
+    # Coerce numeric columns — convert placeholders to None, strip formatting
+    for col in _NUMERIC_DB_COLS:
+        if col in df.columns:
+            df[col] = df[col].apply(_coerce_numeric)
+
+    # Drop fully-duplicate rows
+    df = df.drop_duplicates()
+
+    return df
 
 
 if __name__ == "__main__":

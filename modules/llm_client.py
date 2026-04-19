@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 GEMINI_MODEL = "gemini-2.5-flash"
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
-MAX_OUTPUT_TOKENS = 4000
+MAX_OUTPUT_TOKENS = 8000
 TEMPERATURE = 0.0
 TIMEOUT = 60  # seconds per call
 

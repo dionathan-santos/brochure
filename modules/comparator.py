@@ -1,3 +1,4 @@
+import math
 import re
 import logging
 
@@ -108,6 +109,38 @@ def run_comparator(extracted_records: list, existing_db_df) -> list:
     return results
 
 
+_MARKET_TOKENS = frozenset({
+    "market", "tbd", "tbc", "n/a", "na", "ask", "asking", "none", "nan", "-", "--", ""
+})
+
+
+def _norm_numeric_str(val) -> str:
+    """Normalise a rent/cost cell to a canonical string for equality comparison.
+    Returns '' for any market-rate placeholder or null; otherwise a rounded numeric string.
+    """
+    if val is None:
+        return ""
+    if isinstance(val, float) and math.isnan(val):
+        return ""
+    s = str(val).strip()
+    if s.lower() in _MARKET_TOKENS:
+        return ""
+    s = re.sub(r"[$,]", "", s).strip()
+    try:
+        return str(round(float(s), 2))
+    except ValueError:
+        return s.lower()
+
+
+def _safe_str(val) -> str:
+    """Convert any cell value to a stripped string, treating None/NaN as ''."""
+    if val is None:
+        return ""
+    if isinstance(val, float) and math.isnan(val):
+        return ""
+    return str(val).strip()
+
+
 def build_change_notes(db_row: dict, brochure_row: dict) -> str:
     """
     Returns string like:
@@ -118,18 +151,21 @@ def build_change_notes(db_row: dict, brochure_row: dict) -> str:
     for col in COMPARE_COLUMNS:
         db_val = db_row.get(col)
         br_val = brochure_row.get(col)
-        db_str = str(db_val).strip() if db_val is not None else ""
-        br_str = str(br_val).strip() if br_val is not None else ""
-
-        if db_str == br_str:
-            continue
-        if not db_str and not br_str:
-            continue
 
         if col in ("Min Rent", "Max Rent", "Op. Cost"):
-            db_display = f"${db_str}" if db_str else "Market"
-            br_display = f"${br_str}" if br_str else "Market"
+            db_norm = _norm_numeric_str(db_val)
+            br_norm = _norm_numeric_str(br_val)
+            if db_norm == br_norm:
+                continue
+            db_display = f"${db_norm}" if db_norm else "Market"
+            br_display = f"${br_norm}" if br_norm else "Market"
         else:
+            db_str = _safe_str(db_val)
+            br_str = _safe_str(br_val)
+            if db_str == br_str:
+                continue
+            if not db_str and not br_str:
+                continue
             db_display = db_str or "—"
             br_display = br_str or "—"
 
