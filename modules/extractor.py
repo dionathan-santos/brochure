@@ -12,7 +12,7 @@ _LOW_WORD_THRESHOLD = 80
 _OCR_TRIGGER_RATIO = 0.30
 _OCR_DPI = 300
 _PAGE_SEPARATOR = "\n--- PAGE {n} ---\n"
-_MAX_CHARS_PER_PDF = 50_000
+_MAX_CHARS_PER_PDF = 30_000
 
 
 def extract_text_from_pdf(pdf_path: str) -> dict:
@@ -36,18 +36,23 @@ def extract_text_from_pdf(pdf_path: str) -> dict:
             "quality_flag": "ok",
         }
 
+    # Phase 1: extract raw blocks per page
+    all_page_blocks = []
+    for page_num in range(total_pages):
+        all_page_blocks.append(_get_text_blocks(doc[page_num]))
+    doc.close()
+
+    # Phase 2: remove blocks repeated on >50% of pages (navigation / UI elements)
+    all_page_blocks = _deduplicate_blocks(all_page_blocks)
+
+    # Phase 3: reconstruct page text and measure quality
     pages_text = []
     low_text_count = 0
-
-    for page_num in range(total_pages):
-        page = doc[page_num]
-        text = _clean_page_text(_extract_page_text(page))
-        word_count = len(text.split())
-        if word_count < _LOW_WORD_THRESHOLD:
+    for blocks in all_page_blocks:
+        text = _clean_page_text("\n\n".join(blocks))
+        if len(text.split()) < _LOW_WORD_THRESHOLD:
             low_text_count += 1
         pages_text.append(text)
-
-    doc.close()
 
     low_text_ratio = low_text_count / total_pages
 
@@ -74,20 +79,47 @@ def extract_text_from_pdf(pdf_path: str) -> dict:
     }
 
 
-def _extract_page_text(page) -> str:
-    """Extract text using spatial block sorting, bypassing the tag/structure tree.
-
-    Interactive PDFs often have a broken structure tree that causes PyMuPDF to
-    duplicate content when using the default text extraction mode. Extracting
-    blocks and re-sorting by (y, x) coordinates avoids that entirely.
-    """
-    blocks = page.get_text("blocks")
-    # type 0 = text block, type 1 = image block — skip images
-    text_blocks = sorted(
-        (b for b in blocks if b[6] == 0),
+def _get_text_blocks(page) -> list:
+    """Return spatially-sorted, non-empty text block strings from a page."""
+    raw_blocks = page.get_text("blocks")
+    sorted_blocks = sorted(
+        (b for b in raw_blocks if b[6] == 0),        # skip image blocks
         key=lambda b: (round(b[1], 1), round(b[0], 1)),
     )
-    return "\n\n".join(b[4].strip() for b in text_blocks if b[4].strip())
+    return [b[4].strip() for b in sorted_blocks if b[4].strip()]
+
+
+def _deduplicate_blocks(all_page_blocks: list) -> list:
+    """Remove text blocks that appear on more than half the pages.
+
+    Interactive PDFs embed navigation menus, headers, and button labels that
+    repeat on every page. These inflate the text sent to the LLM without
+    adding extraction value.
+    """
+    n_pages = len(all_page_blocks)
+    if n_pages < 3:
+        return all_page_blocks
+
+    # Count pages each normalised block text appears on
+    page_count: dict = {}
+    for page_blocks in all_page_blocks:
+        seen: set = set()
+        for block in page_blocks:
+            key = " ".join(block.split())
+            if key and key not in seen:
+                page_count[key] = page_count.get(key, 0) + 1
+                seen.add(key)
+
+    threshold = n_pages * 0.5
+    repeating = {k for k, v in page_count.items() if v > threshold}
+
+    if repeating:
+        logger.debug("Removed %d repeated block(s) (>50%% of pages)", len(repeating))
+
+    return [
+        [b for b in page_blocks if " ".join(b.split()) not in repeating]
+        for page_blocks in all_page_blocks
+    ]
 
 
 def _clean_page_text(text: str) -> str:
@@ -101,7 +133,7 @@ def _ocr_pdf(pdf_path: str, total_pages: int) -> list:
     """Render each page at 300 DPI and run pytesseract OCR."""
     doc = fitz.open(pdf_path)
     pages_text = []
-    scale = _OCR_DPI / 72  # 72 DPI is fitz default
+    scale = _OCR_DPI / 72
     mat = fitz.Matrix(scale, scale)
 
     for page_num in range(total_pages):

@@ -108,10 +108,11 @@ class TestExtractTextFromPdf(unittest.TestCase):
     def test_low_text_flag_when_some_pages_sparse(self):
         """When ≤30% pages are sparse, stay with pymupdf but flag low_text."""
         import fitz as fitz_mod
-        rich = "word " * 200
+        # Use distinct content so deduplication does not remove the rich blocks
         sparse = "word " * 10
-        # 1 sparse out of 4 pages = 25% ≤ 30% → no OCR
-        fitz_mod.open = lambda path: _make_fake_doc([rich, rich, rich, sparse])
+        fitz_mod.open = lambda path: _make_fake_doc([
+            "alpha " * 200, "beta " * 200, "gamma " * 200, sparse,
+        ])
         result = extract_text_from_pdf("mixed.pdf")
         self.assertEqual(result["extraction_method"], "pymupdf")
         self.assertEqual(result["quality_flag"], "low_text")

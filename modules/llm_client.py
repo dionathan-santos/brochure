@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 GEMINI_MODEL = "gemini-2.5-flash"
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
-MAX_OUTPUT_TOKENS = 8000
+MAX_OUTPUT_TOKENS = 32000
 TEMPERATURE = 0.0
 TIMEOUT = 60  # seconds per call
 
@@ -96,12 +96,15 @@ def _call_gemini(prompt: str, pdf_text: str, attempt: int) -> str:
     if not gemini_api_key:
         raise LLMError("GEMINI_API_KEY not set")
 
+    # Allow notebook-level model override via GEMINI_MODEL_OVERRIDE env var
+    model_name = os.environ.get("GEMINI_MODEL_OVERRIDE") or GEMINI_MODEL
+
     full_prompt = prompt.format(pdf_text=pdf_text)
     start = time.time()
 
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent?key={gemini_api_key}"
+        f"{model_name}:generateContent?key={gemini_api_key}"
     )
     payload = {
         "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
@@ -135,7 +138,8 @@ def _call_gemini(prompt: str, pdf_text: str, attempt: int) -> str:
         usage = data.get("usageMetadata", {})
         input_tokens = usage.get("promptTokenCount", len(full_prompt) // 4)
         logger.info(
-            "Gemini attempt %d: %s input tokens, %.1fs", attempt, input_tokens, duration
+            "Gemini attempt %d (%s): %s input tokens, %.1fs",
+            attempt, model_name, input_tokens, duration,
         )
         return text
     except LLMError:
