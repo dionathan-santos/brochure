@@ -120,7 +120,12 @@ def _call_gemini(prompt: str, pdf_text: str, attempt: int) -> str:
             headers={"content-type": "application/json"},
             timeout=TIMEOUT,
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            body = resp.text[:300]
+            duration = time.time() - start
+            raise LLMError(
+                f"Gemini HTTP {resp.status_code} (attempt {attempt}, {duration:.1f}s): {body}"
+            )
         duration = time.time() - start
         data = resp.json()
         try:
@@ -133,10 +138,12 @@ def _call_gemini(prompt: str, pdf_text: str, attempt: int) -> str:
             "Gemini attempt %d: %s input tokens, %.1fs", attempt, input_tokens, duration
         )
         return text
+    except LLMError:
+        raise
     except requests.exceptions.RequestException as exc:
         duration = time.time() - start
         raise LLMError(
-            f"Gemini HTTP error (attempt {attempt}, {duration:.1f}s): {exc}"
+            f"Gemini request error (attempt {attempt}, {duration:.1f}s): {exc}"
         ) from exc
 
 
@@ -173,7 +180,12 @@ def _call_haiku(prompt: str, pdf_text: str, attempt: int) -> str:
             json=payload,
             timeout=TIMEOUT,
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            body = resp.text[:300]
+            duration = time.time() - start
+            raise LLMError(
+                f"Haiku HTTP {resp.status_code} (attempt {attempt}, {duration:.1f}s): {body}"
+            )
         duration = time.time() - start
         data = resp.json()
         input_tokens = data.get("usage", {}).get("input_tokens", "?")
@@ -181,8 +193,10 @@ def _call_haiku(prompt: str, pdf_text: str, attempt: int) -> str:
             "Haiku attempt %d: %s input tokens, %.1fs", attempt, input_tokens, duration
         )
         return data["content"][0]["text"]
+    except LLMError:
+        raise
     except requests.exceptions.RequestException as exc:
         duration = time.time() - start
         raise LLMError(
-            f"Haiku HTTP error (attempt {attempt}, {duration:.1f}s): {exc}"
+            f"Haiku request error (attempt {attempt}, {duration:.1f}s): {exc}"
         ) from exc
