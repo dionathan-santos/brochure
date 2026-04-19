@@ -16,7 +16,10 @@ def _stub_fitz():
         def __init__(self, text=""):
             self._text = text
 
-        def get_text(self):
+        def get_text(self, mode="text"):
+            if mode == "blocks":
+                # Return a single text block: (x0, y0, x1, y1, text, block_no, type)
+                return [(0, 0, 100, 20, self._text, 0, 0)]
             return self._text
 
         def get_pixmap(self, matrix=None):
@@ -137,7 +140,9 @@ def _make_fake_doc(page_texts):
         def __init__(self, text):
             self._text = text
 
-        def get_text(self):
+        def get_text(self, mode="text"):
+            if mode == "blocks":
+                return [(0, 0, 100, 20, self._text, 0, 0)]
             return self._text
 
         def get_pixmap(self, matrix=None):

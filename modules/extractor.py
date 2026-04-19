@@ -1,5 +1,6 @@
 import io
 import logging
+import re
 
 import fitz  # PyMuPDF
 import pytesseract
@@ -11,6 +12,7 @@ _LOW_WORD_THRESHOLD = 80
 _OCR_TRIGGER_RATIO = 0.30
 _OCR_DPI = 300
 _PAGE_SEPARATOR = "\n--- PAGE {n} ---\n"
+_MAX_CHARS_PER_PDF = 50_000
 
 
 def extract_text_from_pdf(pdf_path: str) -> dict:
@@ -39,7 +41,7 @@ def extract_text_from_pdf(pdf_path: str) -> dict:
 
     for page_num in range(total_pages):
         page = doc[page_num]
-        text = page.get_text()
+        text = _clean_page_text(_extract_page_text(page))
         word_count = len(text.split())
         if word_count < _LOW_WORD_THRESHOLD:
             low_text_count += 1
@@ -72,6 +74,29 @@ def extract_text_from_pdf(pdf_path: str) -> dict:
     }
 
 
+def _extract_page_text(page) -> str:
+    """Extract text using spatial block sorting, bypassing the tag/structure tree.
+
+    Interactive PDFs often have a broken structure tree that causes PyMuPDF to
+    duplicate content when using the default text extraction mode. Extracting
+    blocks and re-sorting by (y, x) coordinates avoids that entirely.
+    """
+    blocks = page.get_text("blocks")
+    # type 0 = text block, type 1 = image block — skip images
+    text_blocks = sorted(
+        (b for b in blocks if b[6] == 0),
+        key=lambda b: (round(b[1], 1), round(b[0], 1)),
+    )
+    return "\n\n".join(b[4].strip() for b in text_blocks if b[4].strip())
+
+
+def _clean_page_text(text: str) -> str:
+    """Strip single-character noise lines and collapse runs of blank lines."""
+    lines = text.splitlines()
+    cleaned = ["" if len(line.strip()) <= 1 else line for line in lines]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(cleaned)).strip()
+
+
 def _ocr_pdf(pdf_path: str, total_pages: int) -> list:
     """Render each page at 300 DPI and run pytesseract OCR."""
     doc = fitz.open(pdf_path)
@@ -92,9 +117,21 @@ def _ocr_pdf(pdf_path: str, total_pages: int) -> list:
 
 
 def pages_to_text(pages: list) -> str:
-    """Join per-page strings with the standard separator for LLM consumption."""
+    """Join per-page strings with the standard separator.
+
+    Stops adding pages once the total reaches _MAX_CHARS_PER_PDF so the LLM
+    receives a bounded, predictable input size regardless of PDF length.
+    """
     parts = []
+    total_chars = 0
     for n, page_text in enumerate(pages, start=1):
-        parts.append(_PAGE_SEPARATOR.format(n=n))
-        parts.append(page_text)
+        block = _PAGE_SEPARATOR.format(n=n) + page_text
+        if total_chars + len(block) > _MAX_CHARS_PER_PDF:
+            remaining = len(pages) - n + 1
+            parts.append(
+                f"\n[... {remaining} page(s) omitted — character limit reached]"
+            )
+            break
+        parts.append(block)
+        total_chars += len(block)
     return "".join(parts)
