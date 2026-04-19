@@ -6,7 +6,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-GEMINI_MODEL = "gemini-2.0-flash-lite"
+GEMINI_MODEL = "gemini-2.5-flash"
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 MAX_OUTPUT_TOKENS = 8000
 TEMPERATURE = 0.0
@@ -26,7 +26,6 @@ def call_llm(
     pdf_text: str,
     model: str = "gemini-flash-lite",
     attempt: int = 1,
-    json_mode: bool = True,
 ) -> str:
     """
     Returns raw string response from LLM.
@@ -34,28 +33,28 @@ def call_llm(
     """
     if model == HAIKU_MODEL or model.startswith("claude"):
         return _call_haiku(prompt, pdf_text, attempt)
-    return _call_gemini(prompt, pdf_text, attempt, json_mode=json_mode)
+    return _call_gemini(prompt, pdf_text, attempt)
 
 
 def extract_with_fallback(prompt: str, pdf_text: str) -> dict:
     """
-    Orchestrates: Gemini attempt 1 (JSON mode) → Gemini attempt 2 (free-form) → Haiku.
+    Orchestrates: Gemini attempt 1 → Gemini attempt 2 → Haiku attempt.
     Returns parsed JSON dict or raises PipelineError.
     """
-    # Attempt 1: Gemini with responseMimeType constraint
+    # Attempt 1: Gemini
     try:
-        raw = call_llm(prompt, pdf_text, model=GEMINI_MODEL, attempt=1, json_mode=True)
+        raw = call_llm(prompt, pdf_text, model=GEMINI_MODEL, attempt=1)
         result = _parse_json(raw)
         logger.info("Success: Gemini attempt 1")
         return result
     except (LLMError, ValueError) as exc:
         logger.warning("Gemini attempt 1 failed: %s", exc)
 
-    # Attempt 2: Gemini without JSON constraint (handles PDFs that confuse constrained decoding)
+    # Attempt 2: Gemini retry
     try:
-        raw = call_llm(prompt, pdf_text, model=GEMINI_MODEL, attempt=2, json_mode=False)
+        raw = call_llm(prompt, pdf_text, model=GEMINI_MODEL, attempt=2)
         result = _parse_json(raw)
-        logger.info("Success: Gemini attempt 2 (free-form)")
+        logger.info("Success: Gemini attempt 2")
         return result
     except (LLMError, ValueError) as exc:
         logger.warning("Gemini attempt 2 failed: %s", exc)
@@ -87,7 +86,7 @@ def _parse_json(raw: str) -> dict:
         raise ValueError(f"JSON decode error: {exc}") from exc
 
 
-def _call_gemini(prompt: str, pdf_text: str, attempt: int, json_mode: bool = True) -> str:
+def _call_gemini(prompt: str, pdf_text: str, attempt: int) -> str:
     """Call Gemini via the REST API directly (bypasses SDK/proxy issues in Colab)."""
     import os
     from prompts.universal_extraction import SYSTEM_PROMPT
@@ -110,7 +109,7 @@ def _call_gemini(prompt: str, pdf_text: str, attempt: int, json_mode: bool = Tru
         "generationConfig": {
             "temperature": TEMPERATURE,
             "maxOutputTokens": MAX_OUTPUT_TOKENS,
-            **( {"responseMimeType": "application/json"} if json_mode else {} ),
+            "responseMimeType": "application/json",
         },
     }
 
