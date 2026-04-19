@@ -111,6 +111,7 @@ def _call_gemini(prompt: str, pdf_text: str, attempt: int) -> str:
             "temperature": TEMPERATURE,
             "maxOutputTokens": MAX_OUTPUT_TOKENS,
             "responseMimeType": "application/json",
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
