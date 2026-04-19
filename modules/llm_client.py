@@ -110,6 +110,7 @@ def _call_gemini(prompt: str, pdf_text: str, attempt: int) -> str:
         "generationConfig": {
             "temperature": TEMPERATURE,
             "maxOutputTokens": MAX_OUTPUT_TOKENS,
+            "responseMimeType": "application/json",
         },
     }
 
