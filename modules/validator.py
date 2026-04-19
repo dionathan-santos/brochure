@@ -146,10 +146,10 @@ def _check_record(record: AvailabilityRecord, pdf_lower: str, inv_names: list) -
         })
 
     # Rule 5: size range
-    if record.size_sf is not None and not (100 < record.size_sf < 60_000):
+    if record.size_sf is not None and not (100 < record.size_sf < 200_000):
         issues.append({
             "rule": "size_range",
-            "detail": f"size_sf {record.size_sf} outside range (100, 60000)",
+            "detail": f"size_sf {record.size_sf} outside range (100, 200000)",
             "record": record.property_name,
         })
 
