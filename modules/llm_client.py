@@ -6,7 +6,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 MAX_OUTPUT_TOKENS = 4000
 TEMPERATURE = 0.0
