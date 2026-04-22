@@ -89,6 +89,7 @@ def run_pipeline(brochure_dir: str, brokerage: str) -> str:
     all_records: list = []
     errors: list = []
     models_used: set = set()
+    diagnostics: list[dict] = []
 
     # ── Process each PDF ─────────────────────────────────────────────────────
     for pdf_file in pdf_files:
@@ -99,6 +100,8 @@ def run_pipeline(brochure_dir: str, brokerage: str) -> str:
             # a) Extract text
             extraction = extract_text_from_pdf(pdf_path)
             pdf_text = pages_to_text(extraction["pages"])
+            included_pages = _count_included_pages(pdf_text)
+            omitted_pages = max(extraction["total_pages"] - included_pages, 0)
             logger.info(
                 "  Extracted %d pages via %s (quality: %s)",
                 extraction["total_pages"],
@@ -118,18 +121,36 @@ def run_pipeline(brochure_dir: str, brokerage: str) -> str:
             structural = validate_structural(
                 __import__("json").dumps(parsed)  # re-serialise for layer 1
             )
+            raw_listings = parsed.get("listings", [])
             schema_records = validate_schema(structural)
             valid_records, issues = validate_semantic(schema_records, pdf_text, inventory_df)
             blocking_issues = count_blocking_issues(issues)
+            skipped = False
 
             # Keep partial good records. Skip only when validation indicates
             # the whole PDF extraction is unreliable (no valid rows).
             if len(valid_records) == 0 and (blocking_issues > 0 or len(issues) > 2):
+                skipped = True
                 logger.warning(
                     "  Skipping %s — %d semantic issues (%d blocking) and 0 valid records: %s",
                     pdf_file, len(issues), blocking_issues, issues,
                 )
                 errors.append({"pdf": pdf_file, "reason": "semantic_issues", "issues": issues})
+                diagnostics.append(
+                    _build_pdf_diagnostic(
+                        pdf_file=pdf_file,
+                        extraction=extraction,
+                        model_used=model_used,
+                        attempt=attempt,
+                        raw_count=len(raw_listings) if isinstance(raw_listings, list) else 0,
+                        schema_count=len(schema_records),
+                        valid_count=len(valid_records),
+                        issue_count=len(issues),
+                        blocking_count=blocking_issues,
+                        skipped=skipped,
+                        omitted_pages=omitted_pages,
+                    )
+                )
                 continue
 
             if issues:
@@ -148,6 +169,21 @@ def run_pipeline(brochure_dir: str, brokerage: str) -> str:
                 all_records.append(row)
 
             logger.info("  Accepted %d record(s) from %s", len(valid_records), pdf_file)
+            diagnostics.append(
+                _build_pdf_diagnostic(
+                    pdf_file=pdf_file,
+                    extraction=extraction,
+                    model_used=model_used,
+                    attempt=attempt,
+                    raw_count=len(raw_listings) if isinstance(raw_listings, list) else 0,
+                    schema_count=len(schema_records),
+                    valid_count=len(valid_records),
+                    issue_count=len(issues),
+                    blocking_count=blocking_issues,
+                    skipped=skipped,
+                    omitted_pages=omitted_pages,
+                )
+            )
 
         except StructuralError as exc:
             logger.error("  Structural error in %s: %s", pdf_file, exc)
@@ -202,6 +238,8 @@ def run_pipeline(brochure_dir: str, brokerage: str) -> str:
         print(f"    ✗ {err['pdf']} — {err['reason']}")
     print(f"  Output         : {output_path}")
     print("=" * 60 + "\n")
+
+    _print_diagnostics_report(diagnostics)
 
     return output_path
 
@@ -269,6 +307,71 @@ def _infer_source_page_range(pdf_text: str) -> str:
         return ""
     pages = [int(m) for m in matches]
     return f"{min(pages)}-{max(pages)}"
+
+
+def _count_included_pages(pdf_text: str) -> int:
+    matches = re.findall(r"--- PAGE (\d+) ---", pdf_text or "")
+    return len(matches)
+
+
+def _build_pdf_diagnostic(
+    pdf_file: str,
+    extraction: dict,
+    model_used: str | None,
+    attempt: int | None,
+    raw_count: int,
+    schema_count: int,
+    valid_count: int,
+    issue_count: int,
+    blocking_count: int,
+    skipped: bool,
+    omitted_pages: int,
+) -> dict:
+    return {
+        "pdf": pdf_file,
+        "pages": extraction.get("total_pages", 0),
+        "omitted_pages": omitted_pages,
+        "method": extraction.get("extraction_method", ""),
+        "quality": extraction.get("quality_flag", ""),
+        "model": model_used or "unknown",
+        "attempt": attempt or 0,
+        "raw": raw_count,
+        "schema": schema_count,
+        "valid": valid_count,
+        "issues": issue_count,
+        "blocking": blocking_count,
+        "skipped": skipped,
+        "dropped_at_validation": max(schema_count - valid_count, 0),
+    }
+
+
+def _print_diagnostics_report(diagnostics: list[dict]) -> None:
+    if not diagnostics:
+        return
+
+    print("PDF DIAGNOSTICS")
+    print("-" * 60)
+    total_raw = sum(d["raw"] for d in diagnostics)
+    total_valid = sum(d["valid"] for d in diagnostics)
+    total_dropped = sum(d["dropped_at_validation"] for d in diagnostics)
+    total_omitted_pages = sum(d["omitted_pages"] for d in diagnostics)
+
+    print(
+        f"Total raw listings: {total_raw} | "
+        f"Total valid listings: {total_valid} | "
+        f"Dropped in validation: {total_dropped} | "
+        f"Omitted pages (char cap): {total_omitted_pages}"
+    )
+    print("-" * 60)
+    for d in diagnostics:
+        print(
+            f"{d['pdf']}: raw={d['raw']} schema={d['schema']} valid={d['valid']} "
+            f"drop={d['dropped_at_validation']} issues={d['issues']} "
+            f"blocking={d['blocking']} skipped={d['skipped']} "
+            f"pages={d['pages']} omitted={d['omitted_pages']} "
+            f"extract={d['method']}/{d['quality']} model={d['model']}#{d['attempt']}"
+        )
+    print("-" * 60 + "\n")
 
 
 _MARKET_PLACEHOLDERS = frozenset({
