@@ -11,6 +11,7 @@ from modules.validator import (
     validate_schema,
     validate_semantic,
     validate_structural,
+    count_blocking_issues,
 )
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -168,6 +169,14 @@ class TestValidateSemantic(unittest.TestCase):
         valid, issues = validate_semantic([rec], pdf, pd.DataFrame())
         # Without inventory, fuzzy check is skipped — record should pass
         self.assertIn(rec, valid)
+
+
+    def test_blocking_issue_counter(self):
+        issues = [
+            {"rule": "min_records", "severity": "high"},
+            {"rule": "rent_range", "severity": "medium"},
+        ]
+        self.assertEqual(count_blocking_issues(issues), 1)
 
     def test_pydantic_records_pass_through_correctly(self):
         """All records from validate_schema should be acceptable inputs."""

@@ -58,7 +58,7 @@ def run_comparator(extracted_records: list, existing_db_df) -> list:
 
         for i, db_row in enumerate(db_records):
             db_name = _normalize_name(str(db_row.get("Property Name", "")))
-            score = fuzz.token_sort_ratio(br_name, db_name)
+            score = _composite_match_score(brochure_row, db_row, br_name, db_name)
             if score > best_score:
                 best_score = score
                 best_db_idx = i
@@ -107,6 +107,49 @@ def run_comparator(extracted_records: list, existing_db_df) -> list:
             results.append(removed_row)
 
     return results
+
+
+def _composite_match_score(brochure_row: dict, db_row: dict, br_name: str, db_name: str) -> float:
+    """Weighted score across property name, suite, and size similarity."""
+    name_score = fuzz.token_sort_ratio(br_name, db_name)
+
+    br_suite = _safe_str(brochure_row.get("Suite"))
+    db_suite = _safe_str(db_row.get("Suite"))
+    suite_score = 100.0 if br_suite and db_suite and br_suite.lower() == db_suite.lower() else (50.0 if br_suite and db_suite else 0.0)
+
+    size_score = _size_similarity_score(brochure_row.get("Size"), db_row.get("Size"))
+
+    # Prefer name, but use suite/size as tie-breakers for better precision.
+    return round((0.75 * name_score) + (0.15 * suite_score) + (0.10 * size_score), 2)
+
+
+def _size_similarity_score(br_size, db_size) -> float:
+    br = _coerce_float(br_size)
+    db = _coerce_float(db_size)
+    if br is None or db is None or br <= 0 or db <= 0:
+        return 0.0
+    delta = abs(br - db) / max(br, db)
+    if delta <= 0.05:
+        return 100.0
+    if delta <= 0.15:
+        return 70.0
+    if delta <= 0.30:
+        return 40.0
+    return 0.0
+
+
+def _coerce_float(val):
+    if val is None:
+        return None
+    if isinstance(val, float) and math.isnan(val):
+        return None
+    s = re.sub(r"[$,]", "", str(val)).strip()
+    if not s:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
 
 
 _MARKET_TOKENS = frozenset({

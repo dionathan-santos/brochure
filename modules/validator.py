@@ -89,12 +89,12 @@ def validate_semantic(
 
     # Rule 1: at least one record
     if len(records) == 0:
-        issues.append({"rule": "min_records", "detail": "No records extracted"})
+        issues.append({"rule": "min_records", "detail": "No records extracted", "severity": _severity_for_rule("min_records")})
 
     # Rule 2: sanity cap
     if len(records) >= 150:
         issues.append(
-            {"rule": "max_records", "detail": f"Record count {len(records)} exceeds cap 150"}
+            {"rule": "max_records", "detail": f"Record count {len(records)} exceeds cap 150", "severity": _severity_for_rule("max_records")}
         )
 
     # Build inventory name list for fuzzy matching
@@ -113,6 +113,21 @@ def validate_semantic(
             valid_records.append(record)
 
     return (valid_records, issues)
+
+
+def count_blocking_issues(issues: list[dict]) -> int:
+    """Count high-severity semantic issues."""
+    return sum(1 for issue in issues if issue.get("severity") == "high")
+
+
+def _severity_for_rule(rule: str) -> str:
+    high = {"min_records", "property_name_in_text", "inventory_fuzzy_match"}
+    medium = {"max_records", "rent_range", "size_range"}
+    if rule in high:
+        return "high"
+    if rule in medium:
+        return "medium"
+    return "low"
 
 
 # ── private helpers ────────────────────────────────────────────────────────────
@@ -135,6 +150,7 @@ def _check_record(record: AvailabilityRecord, pdf_lower: str, inv_names: list) -
             "rule": "property_name_in_text",
             "detail": f"'{record.property_name}' not found in PDF text",
             "record": record.property_name,
+            "severity": _severity_for_rule("property_name_in_text"),
         })
 
     # Rule 4: Edmonton rent range
@@ -143,6 +159,7 @@ def _check_record(record: AvailabilityRecord, pdf_lower: str, inv_names: list) -
             "rule": "rent_range",
             "detail": f"min_rent {record.min_rent} outside Edmonton range (5, 80)",
             "record": record.property_name,
+            "severity": _severity_for_rule("rent_range"),
         })
 
     # Rule 5: size range
@@ -151,6 +168,7 @@ def _check_record(record: AvailabilityRecord, pdf_lower: str, inv_names: list) -
             "rule": "size_range",
             "detail": f"size_sf {record.size_sf} outside range (100, 200000)",
             "record": record.property_name,
+            "severity": _severity_for_rule("size_range"),
         })
 
     # Rule 6: inventory fuzzy match (very loose — catches hallucinations only)
@@ -165,6 +183,7 @@ def _check_record(record: AvailabilityRecord, pdf_lower: str, inv_names: list) -
                     f"'{record.property_name}' best inventory score {best_score} ≤ 55"
                 ),
                 "record": record.property_name,
+                "severity": _severity_for_rule("inventory_fuzzy_match"),
             })
 
     return issues

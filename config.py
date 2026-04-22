@@ -62,6 +62,10 @@ DB_COLUMNS = [
     "Source_Brochure",         # col 44
     "Extraction_Confidence",   # col 45
     "Match_Score",             # col 46
+    "Model_Used",              # col 47
+    "Extraction_Attempt",      # col 48
+    "Source_Page_Range",       # col 49
+    "Validation_Issue_Count",  # col 50
 ]
 
 COLUMN_SOURCES = {
@@ -82,6 +86,7 @@ COLUMN_SOURCES = {
         "Days Since Last Verified", "Last Verified", "Updated By",
         "Avg. Asking Rent", "Days on Market", "Quarter",
         "Source_Brochure", "Extraction_Confidence", "Match_Score",
+        "Model_Used", "Extraction_Attempt", "Source_Page_Range", "Validation_Issue_Count",
     ],
     "INTENTIONALLY_BLANK": [
         "Internal Comments", "In Office Stats (Yes / No)",
