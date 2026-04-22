@@ -122,13 +122,21 @@ def run_pipeline(brochure_dir: str, brokerage: str) -> str:
             valid_records, issues = validate_semantic(schema_records, pdf_text, inventory_df)
             blocking_issues = count_blocking_issues(issues)
 
-            if blocking_issues > 0 or len(issues) > 4:
+            # Keep partial good records. Skip only when validation indicates
+            # the whole PDF extraction is unreliable (no valid rows).
+            if len(valid_records) == 0 and (blocking_issues > 0 or len(issues) > 2):
                 logger.warning(
-                    "  Skipping %s — %d semantic issues (%d blocking): %s",
+                    "  Skipping %s — %d semantic issues (%d blocking) and 0 valid records: %s",
                     pdf_file, len(issues), blocking_issues, issues,
                 )
                 errors.append({"pdf": pdf_file, "reason": "semantic_issues", "issues": issues})
                 continue
+
+            if issues:
+                logger.info(
+                    "  %s has %d semantic issue(s) (%d blocking), but %d valid record(s) kept",
+                    pdf_file, len(issues), blocking_issues, len(valid_records)
+                )
 
             # d) Convert to DB-column dicts and attach pipeline metadata
             for rec in valid_records:

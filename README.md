@@ -35,7 +35,7 @@ Follow instructions in `notebooks/run_pipeline.ipynb` to run the pipeline in a C
 
 ## Recent Reliability Improvements
 - Added deterministic LLM retry backoff and model/attempt metadata capture.
-- Added severity-based semantic issue handling in the pipeline.
+- Added severity-based semantic issue handling in the pipeline (while still keeping partial valid records per PDF).
 - Added provenance columns in output records (`Model_Used`, `Extraction_Attempt`, `Source_Page_Range`, `Validation_Issue_Count`).
 - Improved comparator matching to use a weighted composite of name + suite + size similarity.
 
@@ -44,6 +44,10 @@ Run from repo root:
 ```bash
 pytest -q
 ```
+
+Optional reliability envs:
+- `LLM_RETRY_BASE_SECONDS` (default: `1.5`)
+- `LLM_TIMEOUT_SECONDS` (default: `90`)
 
 ## License
 Proprietary - Avison Young Market Intelligence

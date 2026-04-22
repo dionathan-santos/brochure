@@ -11,7 +11,7 @@ GEMINI_MODEL = "gemini-2.5-flash"
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 MAX_OUTPUT_TOKENS = 32000
 TEMPERATURE = 0.0
-TIMEOUT = 60  # seconds per call
+TIMEOUT = int(os.environ.get("LLM_TIMEOUT_SECONDS", "90"))  # seconds per call
 
 
 class LLMError(Exception):
