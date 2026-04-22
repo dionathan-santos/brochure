@@ -158,6 +158,16 @@ class TestRunComparator(unittest.TestCase):
         actions = {r["Action"] for r in results}
         self.assertTrue(actions.issubset({"REVIEW", "OK", "UPDATE", "NEW", "REMOVED"}))
 
+
+    def test_suite_and_size_help_confirm_match(self):
+        brochure = [{"Property Name": "Scotia Place Tower", "Suite": "1200", "Size": 2000}]
+        db = _db([{
+            "Property Name": "Scotia Place", "Suite": "1200", "Size": 2000,
+        }])
+        results = run_comparator(brochure, db)
+        matched = [r for r in results if r.get("Action") in ("OK", "UPDATE")]
+        self.assertTrue(matched)
+
     def test_output_excel_three_tabs(self):
         """Integration smoke test: build_output_excel produces 3 correctly-named sheets."""
         import tempfile

@@ -20,6 +20,7 @@ from modules.validator import (
     validate_schema,
     validate_semantic,
     validate_structural,
+    count_blocking_issues,
 )
 from prompts.universal_extraction import USER_PROMPT_TEMPLATE
 
@@ -107,6 +108,11 @@ def run_pipeline(brochure_dir: str, brokerage: str) -> str:
 
             # b) LLM extraction
             parsed = extract_with_fallback(USER_PROMPT_TEMPLATE, pdf_text)
+            pipeline_meta = parsed.get("_pipeline_meta", {})
+            model_used = pipeline_meta.get("model_used")
+            attempt = pipeline_meta.get("attempt")
+            if model_used:
+                models_used.add(model_used)
 
             # c) Validation
             structural = validate_structural(
@@ -114,11 +120,12 @@ def run_pipeline(brochure_dir: str, brokerage: str) -> str:
             )
             schema_records = validate_schema(structural)
             valid_records, issues = validate_semantic(schema_records, pdf_text, inventory_df)
+            blocking_issues = count_blocking_issues(issues)
 
-            if len(issues) > 2:
+            if blocking_issues > 0 or len(issues) > 4:
                 logger.warning(
-                    "  Skipping %s — %d semantic issues: %s",
-                    pdf_file, len(issues), issues,
+                    "  Skipping %s — %d semantic issues (%d blocking): %s",
+                    pdf_file, len(issues), blocking_issues, issues,
                 )
                 errors.append({"pdf": pdf_file, "reason": "semantic_issues", "issues": issues})
                 continue
@@ -126,6 +133,10 @@ def run_pipeline(brochure_dir: str, brokerage: str) -> str:
             # d) Convert to DB-column dicts and attach pipeline metadata
             for rec in valid_records:
                 row = _record_to_db_dict(rec, pdf_file, today)
+                row["Model_Used"] = model_used
+                row["Extraction_Attempt"] = attempt
+                row["Source_Page_Range"] = _infer_source_page_range(pdf_text)
+                row["Validation_Issue_Count"] = len(issues)
                 all_records.append(row)
 
             logger.info("  Accepted %d record(s) from %s", len(valid_records), pdf_file)
@@ -178,6 +189,7 @@ def run_pipeline(brochure_dir: str, brokerage: str) -> str:
     print(f"  REMOVED        : {action_counts.get('REMOVED', 0)}")
     print(f"  REVIEW         : {action_counts.get('REVIEW', 0)}")
     print(f"  Errors         : {len(errors)}")
+    print(f"  Models used    : {', '.join(sorted(models_used)) if models_used else 'none'}")
     for err in errors:
         print(f"    ✗ {err['pdf']} — {err['reason']}")
     print(f"  Output         : {output_path}")
@@ -241,6 +253,14 @@ def _record_to_db_dict(record, source_brochure: str, run_date: date) -> dict:
         row["Days on Market"] = None
 
     return row
+
+
+def _infer_source_page_range(pdf_text: str) -> str:
+    matches = re.findall(r"--- PAGE (\d+) ---", pdf_text or "")
+    if not matches:
+        return ""
+    pages = [int(m) for m in matches]
+    return f"{min(pages)}-{max(pages)}"
 
 
 _MARKET_PLACEHOLDERS = frozenset({

@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import time
 
 import requests
@@ -39,35 +40,44 @@ def call_llm(
 def extract_with_fallback(prompt: str, pdf_text: str) -> dict:
     """
     Orchestrates: Gemini attempt 1 → Gemini attempt 2 → Haiku attempt.
-    Returns parsed JSON dict or raises PipelineError.
+    Returns parsed JSON dict with _pipeline_meta or raises PipelineError.
     """
-    # Attempt 1: Gemini
-    try:
-        raw = call_llm(prompt, pdf_text, model=GEMINI_MODEL, attempt=1)
-        result = _parse_json(raw)
-        logger.info("Success: Gemini attempt 1")
-        return result
-    except (LLMError, ValueError) as exc:
-        logger.warning("Gemini attempt 1 failed: %s", exc)
+    attempts = [
+        (GEMINI_MODEL, 1),
+        (GEMINI_MODEL, 2),
+        (HAIKU_MODEL, 1),
+    ]
 
-    # Attempt 2: Gemini retry
-    try:
-        raw = call_llm(prompt, pdf_text, model=GEMINI_MODEL, attempt=2)
-        result = _parse_json(raw)
-        logger.info("Success: Gemini attempt 2")
-        return result
-    except (LLMError, ValueError) as exc:
-        logger.warning("Gemini attempt 2 failed: %s", exc)
+    last_exc = None
+    for model, attempt in attempts:
+        try:
+            raw = call_llm(prompt, pdf_text, model=model, attempt=attempt)
+            result = _parse_json(raw)
+            result.setdefault("_pipeline_meta", {})
+            result["_pipeline_meta"].update({
+                "model_used": model,
+                "attempt": attempt,
+            })
+            logger.info("Success: %s attempt %d", model, attempt)
+            return result
+        except (LLMError, ValueError) as exc:
+            last_exc = exc
+            logger.warning("%s attempt %d failed: %s", model, attempt, exc)
+            _sleep_before_retry(model=model, attempt=attempt)
 
-    # Attempt 3: Haiku fallback
-    try:
-        raw = call_llm(prompt, pdf_text, model=HAIKU_MODEL, attempt=1)
-        result = _parse_json(raw)
-        logger.info("Success: Haiku attempt 1")
-        return result
-    except (LLMError, ValueError) as exc:
-        logger.warning("Haiku attempt failed: %s", exc)
-        raise PipelineError("All LLM attempts (Gemini×2 + Haiku) failed") from exc
+    raise PipelineError("All LLM attempts (Gemini×2 + Haiku) failed") from last_exc
+
+
+def _sleep_before_retry(model: str, attempt: int) -> None:
+    """Simple exponential backoff with jitterless deterministic delays."""
+    # No wait after final fallback attempt
+    if model == HAIKU_MODEL and attempt == 1:
+        return
+
+    base = float(os.environ.get("LLM_RETRY_BASE_SECONDS", "1.5"))
+    delay = min(base * (2 ** (attempt - 1)), 8.0)
+    logger.info("Retry backoff: sleeping %.1fs", delay)
+    time.sleep(delay)
 
 
 # ── private helpers ────────────────────────────────────────────────────────────
@@ -88,7 +98,6 @@ def _parse_json(raw: str) -> dict:
 
 def _call_gemini(prompt: str, pdf_text: str, attempt: int) -> str:
     """Call Gemini via the REST API directly (bypasses SDK/proxy issues in Colab)."""
-    import os
     from prompts.universal_extraction import SYSTEM_PROMPT
 
     # Read at call-time so Colab env vars set after module import are picked up
@@ -153,7 +162,6 @@ def _call_gemini(prompt: str, pdf_text: str, attempt: int) -> str:
 
 def _call_haiku(prompt: str, pdf_text: str, attempt: int) -> str:
     """Call Anthropic Claude Haiku via the Messages API."""
-    import os
     from prompts.universal_extraction import SYSTEM_PROMPT
 
     # Read at call-time for same reason as Gemini key above
